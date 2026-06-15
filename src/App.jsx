@@ -56,7 +56,7 @@ function App() {
 
     await getLocalStream();
 
-    const socket = io("http://localhost:9999");
+    const socket = io("https://greedless-shine-caloric.ngrok-free.dev ");
     socketRef.current = socket;
 
     socket.emit("join", roomId);
