@@ -41,22 +41,27 @@ const App = () => {
   const rtcConfig = {
     iceServers: [
       {
-        urls: "stun:stun.l.google.com:19302",
+        urls: "stun:stun.relay.metered.ca:80",
       },
       {
-        urls: "turn:openrelay.metered.ca:80",
-        username: "openrelayproject",
-        credential: "openrelayproject",
+        urls: "turn:global.relay.metered.ca:80",
+        username: "605292ff03fb8440dfba4574",
+        credential: "qSUoh2356eLphMuW",
       },
       {
-        urls: "turn:openrelay.metered.ca:443",
-        username: "openrelayproject",
-        credential: "openrelayproject",
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: "605292ff03fb8440dfba4574",
+        credential: "qSUoh2356eLphMuW",
       },
       {
-        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-        username: "openrelayproject",
-        credential: "openrelayproject",
+        urls: "turn:global.relay.metered.ca:443",
+        username: "605292ff03fb8440dfba4574",
+        credential: "qSUoh2356eLphMuW",
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: "605292ff03fb8440dfba4574",
+        credential: "qSUoh2356eLphMuW",
       },
     ],
   };
