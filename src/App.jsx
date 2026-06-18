@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
+const socket = io("https://greedless-shine-caloric.ngrok-free.dev", {
+  extraHeaders: {
+    "ngrok-skip-browser-warning": "true",
+  },
+  transports: ["websocket"], // skip polling, go straight to WS
+});
 
 const App = () => {
   const videoRef = useRef();
@@ -12,12 +18,6 @@ const App = () => {
   const [connected, setConnected] = useState(false);
 
   // top of file, but with the header fix
-  const socket = io("https://greedless-shine-caloric.ngrok-free.dev", {
-    extraHeaders: {
-      "ngrok-skip-browser-warning": "true",
-    },
-    transports: ["websocket"], // skip polling, go straight to WS
-  });
 
   const offerOptions = {
     iceRestart: true,
