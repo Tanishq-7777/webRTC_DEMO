@@ -1,175 +1,179 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
+const App = () => {
+  const videoRef = useRef();
+  const localStreamRef = useRef();
+  const peerConnectionRef = useRef(null);
+  const remoteVideoRef = useRef();
 
-const ICE_SERVERS = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
+  // top of file, but with the header fix
+  const socket = io("https://greedless-shine-caloric.ngrok-free.dev", {
+    extraHeaders: {
+      "ngrok-skip-browser-warning": "true",
+    },
+    transports: ["websocket"], // skip polling, go straight to WS
+  });
 
-function App() {
-  const [roomId, setRoomId] = useState("");
-  const [status, setStatus] = useState("idle");
+  const offerOptions = {
+    iceRestart: true,
+    offerToReceiveAudio: true,
+    offerToReceiveVideo: true,
+  };
 
-  const socketRef = useRef(null);
-  const pcRef = useRef(null);
-  const localStreamRef = useRef(null);
+  const invokeUserMedia = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      videoRef.current.srcObject = stream;
+      localStreamRef.current = stream;
+    } catch (error) {
+      console.log(error.message);
+    }
+  };
 
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
+  const rtcConfig = {
+    iceServers: [
+      {
+        urls: "stun:stun.l.google.com:19302",
+      },
+    ],
+  };
 
-  async function getLocalStream() {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: true,
-    });
-    localStreamRef.current = stream;
-
-    localVideoRef.current.srcObject = stream;
-  }
-
-  function createPeerConnection() {
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socketRef.current.emit("ice-candidate", {
-          roomId,
-          candidate: event.candidate,
-        });
-      }
-    };
-
-    pc.ontrack = (event) => {
-      remoteVideoRef.current.srcObject = event.streams[0];
-      setStatus("in-call");
-    };
+  const createPeerConnection = () => {
+    let peerConnection = new RTCPeerConnection(rtcConfig);
+    peerConnectionRef.current = peerConnection;
 
     localStreamRef.current.getTracks().forEach((track) => {
-      pc.addTrack(track, localStreamRef.current);
+      peerConnection.addTrack(track, localStreamRef.current);
     });
 
-    pcRef.current = pc;
-    return pc;
-  }
-
-  async function joinRoom() {
-    if (!roomId.trim()) return;
-
-    await getLocalStream();
-
-    const socket = io("https://greedless-shine-caloric.ngrok-free.dev ");
-    socketRef.current = socket;
-
-    socket.emit("join", roomId);
-
-    socket.on("created", () => {
-      setStatus("waiting");
-    });
-
-    socket.on("peer-joined", async () => {
-      const pc = createPeerConnection();
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit("offer", { roomId, sdp: offer });
-    });
-
-    socket.on("offer", async ({ sdp }) => {
-      const pc = createPeerConnection();
-
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit("answer", { roomId, sdp: answer });
-    });
-
-    socket.on("answer", async ({ sdp }) => {
-      await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-    });
-
-    socket.on("ice-candidate", async ({ candidate }) => {
-      try {
-        await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        // Occasionally a candidate arrives before setRemoteDescription completes.
-        // Safe to ignore -- ICE is resilient, other candidates will work.
-        console.warn("addIceCandidate error (usually safe to ignore):", err);
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ice-candidate", event.candidate);
+        console.log("ICE candidate:", event.candidate);
       }
-    });
+    };
 
-    socket.on("peer-left", () => {
-      setStatus("disconnected");
-      pcRef.current?.close();
-    });
+    peerConnection.ontrack = (event) => {
+      remoteVideoRef.current.srcObject = event.streams[0];
+    };
 
-    socket.on("room-full", () => {
-      alert("Room is full (max 2 people).");
-      socket.disconnect();
-    });
-  }
+    return peerConnection;
+  };
 
   useEffect(() => {
+    const init = async () => {
+      await invokeUserMedia();
+      socket.emit("join-room", { roomID: "room-1" });
+      socket.on("user-joined", async () => {
+        const peerConnection = createPeerConnection();
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit("offer", offer);
+      });
+      socket.on("offer", async (offer) => {
+        const peerConnection = createPeerConnection();
+
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(offer),
+        );
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit("answer", answer);
+      });
+
+      socket.on("answer", async (answer) => {
+        await peerConnectionRef.current.setRemoteDescription(
+          new RTCSessionDescription(answer),
+        );
+      });
+
+      socket.on("ice-candidate", async (candidate) => {
+        await peerConnectionRef.current.addIceCandidate(
+          new RTCIceCandidate(candidate),
+        );
+      });
+    };
+    init();
     return () => {
-      localStreamRef.current?.getTracks().forEach((t) => t.stop());
-      pcRef.current?.close();
-      socketRef.current?.disconnect();
+      socket.off("user-joined");
+      socket.off("offer");
+      socket.off("answer");
+      socket.off("ice-candidate");
     };
   }, []);
-
   return (
-    <div style={{ padding: 24, fontFamily: "sans-serif" }}>
-      <h2>WebRTC Video Call</h2>
+    <div
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "#111827",
+        color: "white",
+        padding: "20px",
+      }}
+    >
+      <h1
+        style={{
+          textAlign: "center",
+          marginBottom: "30px",
+          fontSize: "32px",
+        }}
+      >
+        Video Call
+      </h1>
 
-      {status === "idle" && (
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            placeholder="Enter room ID"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-            style={{ padding: "8px 12px", fontSize: 16 }}
-          />
-          <button
-            onClick={joinRoom}
-            style={{ padding: "8px 16px", fontSize: 16 }}
-          >
-            Join Room
-          </button>
-        </div>
-      )}
-
-      {status === "waiting" && (
-        <p>⏳ Waiting for the other person to join...</p>
-      )}
-      {status === "in-call" && <p style={{ color: "green" }}>🟢 Connected</p>}
-      {status === "disconnected" && (
-        <p style={{ color: "red" }}>🔴 Peer disconnected</p>
-      )}
-
-      <div style={{ display: "flex", gap: 16, marginTop: 24 }}>
-        <div>
-          <p style={{ margin: "0 0 6px", fontSize: 12, color: "#666" }}>You</p>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: "20px",
+          flexWrap: "wrap",
+        }}
+      >
+        <div
+          style={{
+            background: "#1f2937",
+            padding: "15px",
+            borderRadius: "15px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <h3 style={{ textAlign: "center" }}>You</h3>
           <video
-            ref={localVideoRef}
+            ref={videoRef}
             autoPlay
-            muted // always mute local video -- avoids echo
-            playsInline // needed on iOS to prevent fullscreen takeover
-            style={{ width: 320, background: "#111", borderRadius: 8 }}
+            muted
+            style={{
+              width: "400px",
+              maxWidth: "100%",
+              borderRadius: "10px",
+            }}
           />
         </div>
-        <div>
-          <p style={{ margin: "0 0 6px", fontSize: 12, color: "#666" }}>
-            Remote
-          </p>
+
+        <div
+          style={{
+            background: "#1f2937",
+            padding: "15px",
+            borderRadius: "15px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <h3 style={{ textAlign: "center" }}>Remote User</h3>
           <video
             ref={remoteVideoRef}
             autoPlay
-            playsInline
-            style={{ width: 320, background: "#111", borderRadius: 8 }}
+            style={{
+              width: "400px",
+              maxWidth: "100%",
+              borderRadius: "10px",
+            }}
           />
         </div>
       </div>
     </div>
   );
-}
+};
 
 export default App;
