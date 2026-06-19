@@ -92,12 +92,15 @@ const App = () => {
   useEffect(() => {
     const init = async () => {
       await invokeUserMedia();
-      socket.emit("join-room", { roomID: "room-1" });
-      socket.on("user-joined", async () => {
-        const peerConnection = createPeerConnection();
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        socket.emit("offer", offer);
+      socket.emit("join-room");
+
+      socket.on("matched", async ({ role, roomId }) => {
+        if (role == "caller") {
+          const peerConnection = createPeerConnection();
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
+          socket.emit("offer", offer);
+        }
       });
       socket.on("offer", async (offer) => {
         const peerConnection = createPeerConnection();
