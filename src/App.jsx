@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
+
 const socket = io("https://greedless-shine-caloric.ngrok-free.dev", {
   extraHeaders: {
     "ngrok-skip-browser-warning": "true",
   },
-  transports: ["websocket"], // skip polling, go straight to WS
+  transports: ["websocket"],
 });
 
 const App = () => {
@@ -13,17 +14,7 @@ const App = () => {
   const peerConnectionRef = useRef(null);
   const remoteVideoRef = useRef();
 
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
   const [connected, setConnected] = useState(false);
-
-  // top of file, but with the header fix
-
-  const offerOptions = {
-    iceRestart: true,
-    offerToReceiveAudio: true,
-    offerToReceiveVideo: true,
-  };
 
   const invokeUserMedia = async () => {
     try {
@@ -40,9 +31,7 @@ const App = () => {
 
   const rtcConfig = {
     iceServers: [
-      {
-        urls: "stun:stun.relay.metered.ca:80",
-      },
+      { urls: "stun:stun.relay.metered.ca:80" },
       {
         urls: "turn:global.relay.metered.ca:80",
         username: "605292ff03fb8440dfba4574",
@@ -77,7 +66,6 @@ const App = () => {
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
         socket.emit("ice-candidate", event.candidate);
-        console.log("ICE candidate:", event.candidate);
       }
     };
 
@@ -89,22 +77,39 @@ const App = () => {
     return peerConnection;
   };
 
+  const cleanupAndRejoin = () => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+    setConnected(false);
+
+    socket.disconnect();
+    socket.connect();
+    socket.once("connect", () => {
+      socket.emit("join-room");
+    });
+  };
+
   useEffect(() => {
     const init = async () => {
       await invokeUserMedia();
       socket.emit("join-room");
 
-      socket.on("matched", async ({ role, roomId }) => {
-        if (role == "caller") {
+      socket.on("matched", async ({ role }) => {
+        if (role === "caller") {
           const peerConnection = createPeerConnection();
           const offer = await peerConnection.createOffer();
           await peerConnection.setLocalDescription(offer);
           socket.emit("offer", offer);
         }
       });
+
       socket.on("offer", async (offer) => {
         const peerConnection = createPeerConnection();
-
         await peerConnection.setRemoteDescription(
           new RTCSessionDescription(offer),
         );
@@ -124,53 +129,51 @@ const App = () => {
           new RTCIceCandidate(candidate),
         );
       });
+
+      socket.on("peer-left", () => {
+        cleanupAndRejoin();
+      });
     };
+
     init();
+
     return () => {
-      socket.off("user-joined");
+      socket.off("matched");
       socket.off("offer");
       socket.off("answer");
       socket.off("ice-candidate");
+      socket.off("peer-left");
     };
   }, []);
-
-  const toggleMic = () => {
-    const track = localStreamRef.current?.getAudioTracks()[0];
-    if (track) {
-      track.enabled = !track.enabled;
-      setMicOn(track.enabled);
-    }
-  };
-
-  const toggleCam = () => {
-    const track = localStreamRef.current?.getVideoTracks()[0];
-    if (track) {
-      track.enabled = !track.enabled;
-      setCamOn(track.enabled);
-    }
-  };
 
   return (
     <div className="vc-root">
       <style>{styles}</style>
 
+      <div className="vc-glow vc-glow-1" />
+      <div className="vc-glow vc-glow-2" />
+
       <header className="vc-header">
         <div className="vc-brand">
           <span className="vc-logo-dot" />
-          <h1>Live Call</h1>
+          <h1>ChitChat</h1>
         </div>
         <div className={`vc-status ${connected ? "online" : ""}`}>
           <span className="vc-status-dot" />
-          {connected ? "Connected" : "Waiting for peer..."}
+          {connected ? "Connected" : "Searching for a stranger…"}
         </div>
       </header>
 
       <main className="vc-grid">
         <div className="vc-tile">
-          <video ref={videoRef} autoPlay muted playsInline />
-          <div className="vc-tile-label">
-            You {!micOn && <span className="vc-muted-pill">muted</span>}
-          </div>
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="mirrored"
+          />
+          <div className="vc-tile-label">You</div>
         </div>
 
         <div className="vc-tile">
@@ -178,34 +181,36 @@ const App = () => {
           {!connected && (
             <div className="vc-placeholder">
               <div className="vc-spinner" />
-              <p>Waiting for the other person to join…</p>
+              <p>Looking for someone to connect you with…</p>
             </div>
           )}
-          <div className="vc-tile-label">Remote User</div>
+          <div className="vc-tile-label">Stranger</div>
         </div>
       </main>
 
       <footer className="vc-controls">
         <button
-          className={`vc-btn ${micOn ? "" : "off"}`}
-          onClick={toggleMic}
-          aria-label="Toggle microphone"
+          className="vc-next-btn"
+          onClick={cleanupAndRejoin}
+          aria-label="Next stranger"
         >
-          {micOn ? "🎙️" : "🔇"}
-        </button>
-        <button
-          className={`vc-btn ${camOn ? "" : "off"}`}
-          onClick={toggleCam}
-          aria-label="Toggle camera"
-        >
-          {camOn ? "📹" : "🚫"}
-        </button>
-        <button
-          className="vc-btn end"
-          onClick={() => window.location.reload()}
-          aria-label="End call"
-        >
-          📞
+          <span>Next</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M5 5L13 12L5 19"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M13 5L21 12L13 19"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </button>
       </footer>
     </div>
@@ -213,20 +218,47 @@ const App = () => {
 };
 
 const styles = `
+  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap');
+
   * { box-sizing: border-box; }
 
   .vc-root {
+    position: relative;
     min-height: 100vh;
-    background: radial-gradient(circle at 20% 20%, #1e293b 0%, #0b1120 60%, #060912 100%);
-    color: #e2e8f0;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    background: #07080d;
+    color: #f1f3f9;
+    font-family: 'Outfit', system-ui, sans-serif;
     display: flex;
     flex-direction: column;
-    padding: clamp(12px, 3vw, 28px);
-    gap: clamp(16px, 3vw, 28px);
+    padding: clamp(16px, 3vw, 32px);
+    gap: clamp(20px, 3vw, 32px);
+  }
+
+  .vc-glow {
+    position: absolute;
+    width: 520px;
+    height: 520px;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .vc-glow-1 {
+    top: -180px;
+    left: -120px;
+    background: radial-gradient(circle, #6d5dfc, transparent 70%);
+  }
+  .vc-glow-2 {
+    bottom: -200px;
+    right: -140px;
+    background: radial-gradient(circle, #1fd1c1, transparent 70%);
   }
 
   .vc-header {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -234,75 +266,80 @@ const styles = `
     gap: 12px;
   }
 
-  .vc-brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
+  .vc-brand { display: flex; align-items: center; gap: 10px; }
 
   .vc-logo-dot {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #22d3ee, #6366f1);
-    box-shadow: 0 0 16px rgba(99, 102, 241, 0.8);
+    background: linear-gradient(135deg, #8b7bff, #1fd1c1);
+    box-shadow: 0 0 18px rgba(139, 123, 255, 0.7);
   }
 
   .vc-header h1 {
     margin: 0;
-    font-size: clamp(20px, 4vw, 30px);
+    font-size: clamp(20px, 3.4vw, 26px);
     font-weight: 700;
     letter-spacing: -0.5px;
-    background: linear-gradient(135deg, #67e8f9, #a5b4fc);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
   }
 
   .vc-status {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    padding: 8px 16px;
+    gap: 9px;
+    font-size: 13.5px;
+    font-weight: 500;
+    padding: 9px 18px;
     border-radius: 999px;
-    background: rgba(148, 163, 184, 0.12);
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+    color: rgba(241, 243, 249, 0.75);
   }
 
   .vc-status-dot {
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    background: #f59e0b;
+    background: #f5a623;
+    box-shadow: 0 0 10px rgba(245, 166, 35, 0.7);
     animation: vc-pulse 1.6s infinite;
   }
 
+  .vc-tile video.mirrored {
+    transform: scaleX(-1);
+  }
   .vc-status.online .vc-status-dot {
-    background: #10b981;
+    background: #2ee6a8;
+    box-shadow: 0 0 10px rgba(46, 230, 168, 0.8);
     animation: none;
   }
+  .vc-status.online { color: rgba(241, 243, 249, 0.95); }
 
   @keyframes vc-pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
+    50% { opacity: 0.35; }
   }
 
   .vc-grid {
+    position: relative;
+    z-index: 1;
     flex: 1;
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: clamp(12px, 2.5vw, 24px);
+    gap: clamp(14px, 2.5vw, 26px);
   }
 
   .vc-tile {
     position: relative;
-    background: #0f172a;
-    border-radius: 20px;
+    background: #0c0e16;
+    border-radius: 28px;
     overflow: hidden;
     aspect-ratio: 16 / 10;
-    border: 1px solid rgba(148, 163, 184, 0.15);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      0 30px 70px rgba(0, 0, 0, 0.55),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.02);
   }
 
   .vc-tile video {
@@ -310,32 +347,21 @@ const styles = `
     height: 100%;
     object-fit: cover;
     display: block;
-    background: #060912;
+    background: #07080d;
   }
 
   .vc-tile-label {
     position: absolute;
-    bottom: 12px;
-    left: 12px;
-    padding: 6px 14px;
-    background: rgba(15, 23, 42, 0.7);
-    backdrop-filter: blur(8px);
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .vc-muted-pill {
-    background: #ef4444;
-    color: white;
-    font-size: 10px;
-    padding: 2px 7px;
-    border-radius: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    bottom: 14px;
+    left: 14px;
+    padding: 7px 15px;
+    background: rgba(7, 8, 13, 0.55);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
   }
 
   .vc-placeholder {
@@ -345,20 +371,21 @@ const styles = `
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 16px;
-    color: #94a3b8;
+    gap: 18px;
+    color: rgba(241, 243, 249, 0.55);
     font-size: 14px;
     text-align: center;
-    padding: 20px;
+    padding: 24px;
+    background: radial-gradient(circle at 50% 40%, rgba(109, 93, 252, 0.08), transparent 65%);
   }
 
   .vc-spinner {
-    width: 38px;
-    height: 38px;
-    border: 3px solid rgba(148, 163, 184, 0.2);
-    border-top-color: #6366f1;
+    width: 36px;
+    height: 36px;
+    border: 2.5px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #8b7bff;
     border-radius: 50%;
-    animation: vc-spin 0.9s linear infinite;
+    animation: vc-spin 0.85s linear infinite;
   }
 
   @keyframes vc-spin {
@@ -366,50 +393,42 @@ const styles = `
   }
 
   .vc-controls {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: clamp(12px, 3vw, 20px);
   }
 
-  .vc-btn {
-    width: clamp(52px, 12vw, 60px);
-    height: clamp(52px, 12vw, 60px);
-    border-radius: 50%;
+  .vc-next-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 34px;
+    border-radius: 999px;
     border: none;
     cursor: pointer;
-    font-size: clamp(20px, 5vw, 24px);
-    background: rgba(148, 163, 184, 0.15);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    transition: transform 0.15s ease, background 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    font-family: inherit;
+    font-size: 15.5px;
+    font-weight: 600;
+    color: #07080d;
+    background: linear-gradient(135deg, #8b7bff, #1fd1c1);
+    box-shadow: 0 18px 40px rgba(139, 123, 255, 0.35);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
   }
 
-  .vc-btn:hover { transform: translateY(-3px); }
-  .vc-btn:active { transform: scale(0.92); }
-
-  .vc-btn.off {
-    background: rgba(239, 68, 68, 0.25);
-    border-color: rgba(239, 68, 68, 0.5);
+  .vc-next-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 22px 48px rgba(139, 123, 255, 0.45);
   }
 
-  .vc-btn.end {
-    background: #ef4444;
-    border-color: #ef4444;
+  .vc-next-btn:active {
+    transform: translateY(0) scale(0.97);
   }
 
-  .vc-btn.end:hover { background: #dc2626; }
-
-  /* Mobile: stack the tiles vertically */
   @media (max-width: 720px) {
-    .vc-grid {
-      grid-template-columns: 1fr;
-    }
-    .vc-tile {
-      aspect-ratio: 4 / 3;
-    }
+    .vc-grid { grid-template-columns: 1fr; }
+    .vc-tile { aspect-ratio: 4 / 3; }
   }
 `;
 
