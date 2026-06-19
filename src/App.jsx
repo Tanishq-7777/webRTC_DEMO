@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const socket = io("https://greedless-shine-caloric.ngrok-free.dev", {
+const socket = io("https://webrtc-demo-backend-x0lz.onrender.com", {
   extraHeaders: {
     "ngrok-skip-browser-warning": "true",
   },
